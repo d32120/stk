@@ -1,0 +1,15 @@
+.env
+gradle.properties
+README.md
+*.klib
+.kotlin
+*.java
+*.jar
+gradle/wrapper/
+/shelf/
+/workspace.xml
+/httpRequests/
+/queries/
+/dataSources/
+/dataSources.local.xml
+*.xml
