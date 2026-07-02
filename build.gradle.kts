@@ -15,6 +15,7 @@ kotlin {
     jvmToolchain(21)
 }
 dependencies {
+    implementation("io.ktor:ktor-client-cio:3.4.3")
     implementation("org.postgresql:postgresql:42.7.8")
     implementation("io.github.cdimascio:dotenv-kotlin:6.5.1")
     implementation(libs.kotlinx.serialization.json)

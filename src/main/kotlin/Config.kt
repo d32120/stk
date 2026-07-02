@@ -13,7 +13,10 @@ object Config {
     val CIRCLE_NAME: String = env["circleName"]
     val LOGGER_NAME: String = env["loggerName"]
 
-    val CONSOLE_LOGGER: String = env["consoleLogger"]
+
+    val SPACE_PRECISION:Double = env["spacePrecision"].toDouble()
+    val TIME_PRECISION_MILLIS:Double = env["timePrecisionMillis"].toDouble()
+
 
     fun printAllLoadedValues() {
         info(buildString{
@@ -34,26 +37,15 @@ object Config {
 }
 
 
-private val loggers: List<Logger> by lazy {
-    listOf(
-        LoggerFactory.getLogger(Config.LOGGER_NAME), LoggerFactory.getLogger(Config.CONSOLE_LOGGER)
-    )
+private val logger by lazy {
+    LoggerFactory.getLogger(Config.LOGGER_NAME)
 }
 
 fun info(msg: String) {
-    loggers.forEach { logger ->
-        logger.info(msg)
-    }
+    logger.info(msg)
+
 }
 
 fun error(msg: String) {
-    loggers.forEach { logger ->
-        logger.error(msg)
-    }
-}
-
-fun error(msg: String, error: Throwable) {
-    loggers.forEach { logger ->
-        logger.error(msg, error)
-    }
+    logger.error(msg)
 }

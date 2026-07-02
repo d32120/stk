@@ -1,6 +1,5 @@
 .env
 gradle.properties
-README.md
 *.klib
 .kotlin
 *.java

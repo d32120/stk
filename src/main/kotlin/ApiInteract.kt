@@ -1,5 +1,8 @@
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.accept
+import io.ktor.client.request.basicAuth
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -8,6 +11,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.http.userAgent
 import kotlinx.serialization.json.Json.Default.parseToJsonElement
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -15,10 +19,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-const val baseUrl= "https://life360/api/v3/"
+const val baseUrl= "https://api-cloudfront.life360.com/v3/"
+const val newUrl = "https://api-cloudfront.life360.com/v4/"
 
 //every function in this file throws an exception if missing a circle member (404) or unauthorized (403) or returns the movement if it's all good
 
+fun HttpRequestBuilder.defaultHeaders(token:String){
+    userAgent("com.life360.android.safetymapd/KOKO/23.50.0 android/13")
+    accept(ContentType.Application.Json)
+    headers["Cache-Control"] = "no-cache"
+    bearerAuth(token)
+
+}
 
 suspend fun getAccessToken(client: HttpClient): String? {
     info("Executing post request against ${baseUrl}oauth2/token.json")
@@ -29,13 +41,17 @@ suspend fun getAccessToken(client: HttpClient): String? {
             put("username",Config.LIFE_USERNAME)   //"username": "example@email.com",
             put("password",Config.LIFE_PASSWORD)   //"password": "string"
         }
+        headers["Authorization"] = "Basic Y2F0aGFwYWNyQVBoZUtVc3RlOGV2ZXZldnVjSGFmZVRydVl1ZnJhYzpkOEM5ZVlVdkE2dUZ1YnJ1SmVnZXRyZVZ1dFJlQ1JVWQ==" //directly from https://github.com/pnbruckner/life360/blob/master/life360/api.py
         setBody(content.toString())
     }
     if(result.status.isSuccess()){ //either 200 or 403
-        val body = parseToJsonElement(result.bodyAsText()) as JsonObject
+        val bas = result.bodyAsText()
+        debug{ bas }
+        val body = parseToJsonElement(bas) as JsonObject
         return ( body["access_token"] as JsonPrimitive).content
     } else {
         error("Authentication failed with status code ${result.status.value}")
+        debug{result.bodyAsText()}
         return null
     }
     /*
@@ -71,9 +87,13 @@ suspend fun getAccessToken(client: HttpClient): String? {
 @Throws(ReloadCircleMembers::class, ExpiredAccessToken::class)
 suspend fun getForceUpdatePosition(client: HttpClient,circleId:String,authToken:String,name:String, id:String):Movement {
     val requestId:String
+    info("Executing post request against ${baseUrl}circles/$circleId/members/$id/request")
     client.post(baseUrl + "circles/$circleId/members/$id/request"){
-        bearerAuth(authToken)
-        contentType(ContentType.Application.Json)
+        defaultHeaders(authToken)
+        val body = buildJsonObject {
+            put("type","location")
+        }
+        setBody(body)
     }.run{
         if(!status.isSuccess()){
             error("Authentication failed with status ${status.value}")
@@ -88,39 +108,47 @@ suspend fun getForceUpdatePosition(client: HttpClient,circleId:String,authToken:
         val body = parseToJsonElement(bodyAsText()) as JsonObject
         requestId = (body["requestId"] as JsonPrimitive).content
 
-    }
+    } //checked at https://github.com/pnbruckner/life360/blob/master/life360/api.py
+    info("Executing get request against ${baseUrl}circles/members/request/$requestId")
     client.get(baseUrl+"circles/members/request/$requestId"){
-        bearerAuth(authToken)
+        defaultHeaders(authToken)
     }.run{
         if(!status.isSuccess()){ //can return either 404 or 200
+            debug{bodyAsText()}
             throw ExpiredAccessToken()
         }
-        val body = parseToJsonElement(bodyAsText()) as JsonObject
+        val bas = bodyAsText()
+        debug{bas}
+        val body = parseToJsonElement(bas) as JsonObject
         val location= body["location"] as JsonObject
         val y = (location["latitude"] as JsonPrimitive).content.toDouble()
         val x = (location["longitude"] as JsonPrimitive).content.toDouble()
         val startTime= (location["startTimestamp"] as JsonPrimitive).content.toLong()
-        val endTime= (location["endTimestamp"] as JsonPrimitive).content.let{ if(it.isEmpty()) null else it.toLong()}
+        val endTime= (location["endTimestamp"] as JsonPrimitive).content.let{ if(it.isEmpty()) startTime else it.toLong()}
         return Movement(
             tag=name,
             start= startTime,
             end=endTime,
             coordinates = Coordinates(x,y)
         )
-    }
+    } // checked at https://github.com/pnbruckner/life360/blob/master/life360/api.py
 }
-
 
 @Throws(ExpiredAccessToken::class,RuntimeException::class) // failed configuration
 suspend fun getCircleId(client: HttpClient,authToken:String): String{
-    val circles = client.get(baseUrl + "circles"){
-    bearerAuth(authToken)
+    info("Executing get request against ${newUrl}circles/")
+    val circles = client.get(newUrl + "circles"){
+    defaultHeaders(authToken)
 }.run {
         if (!status.isSuccess()) {
+            debug{bodyAsText()}
             throw ExpiredAccessToken()
         } else {
-            val body = parseToJsonElement(bodyAsText()) as JsonArray
-            body.map { je ->
+            val bas= bodyAsText()
+            debug{bas}
+            val body = parseToJsonElement(bas) as JsonObject
+
+            (body["circles"] as JsonArray).map { je ->
                 (je as JsonObject).run {
                     Pair(
                         (get("id") as JsonPrimitive).content,
@@ -130,19 +158,8 @@ suspend fun getCircleId(client: HttpClient,authToken:String): String{
             }
         }
     }
-    /*[
-{
-"id": "b42ece6c-47b8-4061-a672-d55fd8211ce3",
-"name": "Smith Family",
-"color": "string",
-"type": "basic",
-"createdAt": "1493252439",
-"memberCount": "2",
-"unreadMessages": "3",
-"unreadNotifications": "0",
-"features": { }
-}
-]*/
+    /*[{"circles":[{"id":"b7c8ab97-f90e-4d25-9f26-77c3ecb23363","name":"Famiglia Fede Transsessuale","createdAt":"1705781484"},{"id":"a6ffe625-13a5-44f7-a14c-fa6e55f655c8","name":"marina romea bombers","createdAt":"1723302278"}]}Exception in thread "main" java.lang.ClassCastException: class kotlinx.serialization.json.JsonObject cannot be cast to class kotlinx.serialization.json.JsonArray (kotlinx.serialization.json.JsonObject and kotlinx.serialization.json.JsonArray are in unnamed module of loader 'app')
+*/
 
     circles.find{ it.second.trim() == Config.CIRCLE_NAME }?.first.let{
         if(it==null) {
@@ -154,14 +171,17 @@ suspend fun getCircleId(client: HttpClient,authToken:String): String{
 
 @Throws(ExpiredAccessToken::class)
 suspend fun getCircleMembers(client: HttpClient,authToken:String,circleId:String): List<Member>{
-
-    val members = client.get(baseUrl + "circles/$circleId"){
-        bearerAuth(authToken)
+info("Executing get request against ${baseUrl}circles/$circleId/members")
+    val members = client.get(baseUrl + "circles/$circleId/members"){
+        defaultHeaders(authToken)
     }.run {
         if(!status.isSuccess()){
+            debug{bodyAsText()}
             throw ExpiredAccessToken()
         } else {
-            val body = (parseToJsonElement(bodyAsText()) as JsonObject)["members"] as JsonArray
+            val bas = bodyAsText()
+            debug{bas}
+            val body = (parseToJsonElement(bas) as JsonObject)["members"] as JsonArray
             body.map { a->
                 a as JsonObject
                 Member(
