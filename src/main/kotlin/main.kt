@@ -5,7 +5,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlin.time.Duration.Companion.days
 
-suspend fun main() {
+
+class Application {
+
+    companion object{
+        @JvmStatic
+    suspend fun main() {
     info("Starting")
 
     createTable()
@@ -44,8 +49,7 @@ suspend fun main() {
         return
     }
     pollingLoop(client, circleId, accessToken, members)
-
-
+}}
 }
 
 

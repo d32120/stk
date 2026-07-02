@@ -7,8 +7,13 @@ plugins {
 group = "com.fraaaa.stk"
 version = "1.0.0"
 
-application {
-    mainClass = "MainKt"
+//application {
+  //  mainClass = "com.fraaaa.stk.Application"
+//}
+tasks.jar.configure {
+    manifest {
+        attributes(mapOf("Main-Class" to "com.fraaaa.stk.Application"))
+    }
 }
 
 kotlin {

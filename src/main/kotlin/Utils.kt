@@ -25,11 +25,7 @@ inline fun CoroutineScope.dispatchPeriodicWork(
     launch {
         delay(startDelay)
         while (isActive) {
-            try {
-                body()
-            } catch (e: Exception) {
-                println(e.stackTraceToString())
-            }
+            body()
             delay(delay)
         }
     }

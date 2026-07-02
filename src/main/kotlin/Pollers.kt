@@ -1,28 +1,32 @@
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 @Throws(ExpiredAccessToken::class, ReloadCircleMembers::class)
-fun dispatchPollers(
+suspend fun dispatchPollers(
     client: HttpClient,
     circleId: String,
     authToken: String,
     members: List<Member>
-) {
+){
     val count = members.count()
     val delay = 150_000.milliseconds / count // 150 seconds, rounded to milliseconds, divided by the number of members
-    val scope = CoroutineScope(Dispatchers.Default)
+
+    coroutineScope{
     for (i in 0..<count) {
-        scope.dispatchPeriodicWork(
+        dispatchPeriodicWork(
             delay = 150.seconds, startDelay = delay * i
         ) {
             val movement = getForceUpdatePosition(client, circleId, authToken, members[i].name, members[i].id)
             // When the function throws, every work is cancelled
-            MovementTable.putMovement(movement)
+            movement?.let{MovementTable.putMovement(it)}
         }
     }
+   }
 }
 
 

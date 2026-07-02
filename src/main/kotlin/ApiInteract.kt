@@ -12,12 +12,15 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.http.userAgent
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json.Default.parseToJsonElement
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlin.time.Duration.Companion.seconds
 
 const val baseUrl= "https://api-cloudfront.life360.com/v3/"
 const val newUrl = "https://api-cloudfront.life360.com/v4/"
@@ -27,6 +30,7 @@ const val newUrl = "https://api-cloudfront.life360.com/v4/"
 fun HttpRequestBuilder.defaultHeaders(token:String){
     userAgent("com.life360.android.safetymapd/KOKO/23.50.0 android/13")
     accept(ContentType.Application.Json)
+    contentType(ContentType.Application.Json)
     headers["Cache-Control"] = "no-cache"
     bearerAuth(token)
 
@@ -85,7 +89,7 @@ suspend fun getAccessToken(client: HttpClient): String? {
 }
 
 @Throws(ReloadCircleMembers::class, ExpiredAccessToken::class)
-suspend fun getForceUpdatePosition(client: HttpClient,circleId:String,authToken:String,name:String, id:String):Movement {
+suspend fun getForceUpdatePosition(client: HttpClient,circleId:String,authToken:String,name:String, id:String):Movement? {
     val requestId:String
     info("Executing post request against ${baseUrl}circles/$circleId/members/$id/request")
     client.post(baseUrl + "circles/$circleId/members/$id/request"){
@@ -93,7 +97,7 @@ suspend fun getForceUpdatePosition(client: HttpClient,circleId:String,authToken:
         val body = buildJsonObject {
             put("type","location")
         }
-        setBody(body)
+        setBody(body.toString())
     }.run{
         if(!status.isSuccess()){
             error("Authentication failed with status ${status.value}")
@@ -110,30 +114,54 @@ suspend fun getForceUpdatePosition(client: HttpClient,circleId:String,authToken:
 
     } //checked at https://github.com/pnbruckner/life360/blob/master/life360/api.py
     info("Executing get request against ${baseUrl}circles/members/request/$requestId")
-    client.get(baseUrl+"circles/members/request/$requestId"){
-        defaultHeaders(authToken)
-    }.run{
-        if(!status.isSuccess()){ //can return either 404 or 200
-            debug{bodyAsText()}
-            throw ExpiredAccessToken()
-        }
-        val bas = bodyAsText()
-        debug{bas}
-        val body = parseToJsonElement(bas) as JsonObject
-        val location= body["location"] as JsonObject
-        val y = (location["latitude"] as JsonPrimitive).content.toDouble()
-        val x = (location["longitude"] as JsonPrimitive).content.toDouble()
-        val startTime= (location["startTimestamp"] as JsonPrimitive).content.toLong()
-        val endTime= (location["endTimestamp"] as JsonPrimitive).content.let{ if(it.isEmpty()) startTime else it.toLong()}
-        return Movement(
-            tag=name,
-            start= startTime,
-            end=endTime,
-            coordinates = Coordinates(x,y)
-        )
-    } // checked at https://github.com/pnbruckner/life360/blob/master/life360/api.py
-}
 
+    val response  = client.get(baseUrl+"circles/members/request/$requestId"){
+        defaultHeaders(authToken)
+    }
+    if(!response.status.isSuccess()){ //can return either 404 or 200
+        debug{response.bodyAsText()}
+        throw ExpiredAccessToken()
+    }
+    val bas = response.bodyAsText()
+    debug{bas}
+    var body = parseToJsonElement(bas) as JsonObject
+    var countRequest=0
+    while( (body["location"] == JsonNull ||
+        (body["status"] as JsonPrimitive).content == "P")
+        && countRequest < 15) {
+        countRequest++
+        delay(1.seconds)
+        val response  = client.get(baseUrl+"circles/members/request/$requestId"){
+            defaultHeaders(authToken)
+        }
+        if(!response.status.isSuccess()){ //can return either 404 or 200
+                debug{response.bodyAsText()}
+                throw ExpiredAccessToken()
+            }
+        val bas = response.bodyAsText()
+        debug{bas}
+        body = parseToJsonElement(bas) as JsonObject
+    }
+    if(countRequest>=15){
+        return null
+    }
+    return jsonObjectToMovement(name, body)
+
+// checked at https://github.com/pnbruckner/life360/blob/master/life360/api.py
+}
+fun jsonObjectToMovement(name:String, body:JsonObject):Movement{
+    val location = body["location"] as JsonObject
+    val y = (location["latitude"] as JsonPrimitive).content.toDouble()
+    val x = (location["longitude"] as JsonPrimitive).content.toDouble()
+    val startTime= (location["startTimestamp"] as JsonPrimitive).content.toLong()
+    val endTime= (location["endTimestamp"] as JsonPrimitive).content.let{ if(it.isEmpty()) startTime else it.toLong()}
+    return Movement(
+        tag=name,
+        start= startTime,
+        end=endTime,
+        coordinates = Coordinates(x,y)
+    )
+}
 @Throws(ExpiredAccessToken::class,RuntimeException::class) // failed configuration
 suspend fun getCircleId(client: HttpClient,authToken:String): String{
     info("Executing get request against ${newUrl}circles/")
