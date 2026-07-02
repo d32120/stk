@@ -7,18 +7,27 @@ plugins {
 group = "com.fraaaa.stk"
 version = "1.0.0"
 
-//application {
-  //  mainClass = "com.fraaaa.stk.Application"
-//}
-tasks.jar.configure {
-    manifest {
-        attributes(mapOf("Main-Class" to "com.fraaaa.stk.Application"))
-    }
-}
-
 kotlin {
     jvmToolchain(21)
 }
+
+tasks.jar.configure {
+    manifest {
+        attributes(mapOf(
+            "Main-Class" to "MainKt",
+            "Implementation-Title" to project.name,
+            "Implementation-Version" to project.version
+        ))
+    }
+    
+    // Fat JAR: include all dependencies
+    from(configurations.runtimeClasspath.get().map { 
+        if (it.isDirectory) it else zipTree(it) 
+    })
+    
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 dependencies {
     implementation("io.ktor:ktor-client-cio:3.4.3")
     implementation("org.postgresql:postgresql:42.7.8")
